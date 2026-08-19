@@ -47,6 +47,7 @@ jobs:
 
     outputs:
       image_tag: ${{ steps.image.outputs.image_tag }}
+      image_uri: ${{ steps.image.outputs.image_uri }}
 
     steps:
       - name: Checkout source code
@@ -57,6 +58,8 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com                  # Added: Must match your IAM Trust Policy aud claim
+          aws-sts-regional-endpoints: regional         # Added: Eliminates intermittent OIDC token rejection loops
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -98,17 +101,17 @@ jobs:
       - name: Deploy SHA-tagged image to EC2
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
         run: |
           ssh \
             -i ~/.ssh/ec2_key \
             -o StrictHostKeyChecking=yes \
             ec2-user@${{ secrets.EC2_HOST }} \
-            "IMAGE_TAG='${IMAGE_TAG}' bash -s" << 'REMOTE_SCRIPT'
+            "IMAGE_TAG='${IMAGE_TAG}' IMAGE_URI='${IMAGE_URI}' bash -s" << 'REMOTE_SCRIPT'
 
           set -e
 
           echo "Logging in to Amazon ECR..."
-
           aws ecr get-login-password --region us-east-1 | \
             docker login \
             --username AWS \
@@ -116,31 +119,24 @@ jobs:
             545931885961.dkr.ecr.us-east-1.amazonaws.com
 
           echo "Pulling image..."
-
-          docker pull \
-            545931885961.dkr.ecr.us-east-1.amazonaws.com/flask-cicd:${IMAGE_TAG}
+          docker pull ${IMAGE_URI}
 
           echo "Stopping old container if it exists..."
-
           docker stop flask-cicd 2>/dev/null || true
 
           echo "Removing old container if it exists..."
-
           docker rm flask-cicd 2>/dev/null || true
 
           echo "Starting new container..."
-
           docker run -d \
             --name flask-cicd \
             -p 5000:5000 \
-            545931885961.dkr.ecr.us-east-1.amazonaws.com/flask-cicd:${IMAGE_TAG}
+            ${IMAGE_URI}
 
           echo "Waiting for application to start..."
-
           sleep 10
 
           echo "Checking application health..."
-
           curl --fail --silent http://localhost:5000/health
 
           echo
