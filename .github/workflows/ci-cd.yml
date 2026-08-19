@@ -1,6 +1,6 @@
 name: Flask CI/CD Pipeline
 
-'on':
+on:
   push:
     branches:
       - main
@@ -16,9 +16,11 @@ env:
   CONTAINER_PORT: 5000
 
 jobs:
+
   test:
     name: Run Pytest
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
@@ -42,16 +44,13 @@ jobs:
     name: Build and Push Docker Image
     needs: test
     runs-on: ubuntu-latest
+
     outputs:
       image_tag: ${{ steps.image.outputs.image_tag }}
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
-       - name: Debug OIDC Claims
-        uses: github/actions-oidc-debugger@main
-        with:
-          audience: 'sts.amazonaws.com'
 
       - name: Configure AWS credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -72,6 +71,8 @@ jobs:
 
           echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
           echo "image_uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+
+          echo "Image URI: ${IMAGE_URI}"
 
       - name: Build Docker image
         run: |
@@ -98,7 +99,8 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          ssh -i ~/.ssh/ec2_key \
+          ssh \
+            -i ~/.ssh/ec2_key \
             -o StrictHostKeyChecking=yes \
             ec2-user@${{ secrets.EC2_HOST }} \
             "IMAGE_TAG='${IMAGE_TAG}' bash -s" << 'REMOTE_SCRIPT'
